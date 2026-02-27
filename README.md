@@ -33,7 +33,7 @@ my-project/
 ## Install
 
 ```bash
-git clone https://github.com/dharmadev/treeman.git
+git clone https://github.com/thiagodebastos/treeman.git
 cd treeman
 ./install.sh
 ```
@@ -103,6 +103,7 @@ treeman init <url> [dirname]
 Clones a repository as a bare repo and sets up the treeman structure. The directory name defaults to the repo name (stripped of `.git`).
 
 What it creates:
+
 - `.bare/` — the bare git repository
 - `.git` — a pointer file (`gitdir: ./.bare`) so tools recognize the project
 - `<default-branch>/` — a worktree for the default branch (auto-detected, usually `main` or `master`)
@@ -117,10 +118,12 @@ treeman add [branch]
 ```
 
 **With a branch name:**
+
 - If the branch exists on the remote, it checks it out as a worktree
 - If the branch doesn't exist, it creates a new branch from `origin/<default-branch>`
 
 **Without arguments (interactive):**
+
 - Fetches remote branches (`git fetch --prune`)
 - Opens an fzf picker showing remote branches not already checked out
 - Type a name that doesn't match any branch to create a new one
@@ -134,6 +137,7 @@ treeman list
 ```
 
 Shows all worktrees with:
+
 - `*` marker for the current worktree
 - Branch name
 - `[dirty]` or `[clean]` status (uncommitted changes + untracked files)
@@ -159,6 +163,7 @@ treeman remove [name] [-f|--force]
 **Without a name:** opens an fzf picker (excludes the current worktree).
 
 Safety checks:
+
 - Refuses to remove a dirty worktree unless `-f`/`--force` is passed
 - Warns if you're currently inside the worktree being removed
 
@@ -212,6 +217,7 @@ cp -r ../.wrangler .
 Lines starting with `#` are comments. The file is created with all examples commented out during `treeman init`.
 
 Typical uses:
+
 - Install dependencies (`npm install`, `pnpm install`, `pip install -r requirements.txt`)
 - Copy environment files (`cp ../.env .`, `cp ../.dev.vars .`)
 - Copy local tool state (`cp -r ../.wrangler .`)
