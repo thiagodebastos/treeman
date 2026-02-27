@@ -356,6 +356,11 @@ cmd_remove() {
         warn "you are inside this worktree — you should cd out after removal"
     fi
 
+    # Warn if user is inside the worktree
+    if [[ "$PWD" == "$worktree_dir"* ]]; then
+        warn "you are inside this worktree — you should cd out before removal"
+    fi
+
     if $force; then
         git -C "$root/.bare" worktree remove --force "$worktree_dir"
     else

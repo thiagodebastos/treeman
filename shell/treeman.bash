@@ -14,9 +14,9 @@ tm() {
 _tm_completions() {
     local cur prev words cword
     _init_completion 2>/dev/null || {
-        cur="${COMP_WORDS[COMP_CWORD]}"
-        prev="${COMP_WORDS[COMP_CWORD-1]}"
-        cword=$COMP_CWORD
+        cur="${COMP_WORDS[COMP_CWORD]:-}"
+        prev="${COMP_WORDS[COMP_CWORD-1]:-}"
+        cword="${COMP_CWORD:-0}"
     }
 
     if (( cword == 1 )); then
