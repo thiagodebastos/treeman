@@ -1,5 +1,7 @@
 # Maintainer: Thiago Lucio <thiagodebastos@gmail.com>
 # Contributor: Thiago Lucio <thiagodebastos@gmail.com>
+#
+# NOTE: Keep pkgver in sync with version.txt before each release.
 
 pkgname=treeman
 pkgver=0.1.0
