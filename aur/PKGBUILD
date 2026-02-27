@@ -1,0 +1,18 @@
+# Maintainer: Thiago Lucio <thiagodebastos@gmail.com>
+# Contributor: Thiago Lucio <thiagodebastos@gmail.com>
+
+pkgname=treeman
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Git worktree manager that keeps everything in one folder"
+arch=('any')
+url="https://github.com/thiagodebastos/treeman"
+license=('BSD-0-Clause')
+depends=('git' 'bash' 'fzf')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/thiagodebastos/treeman/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    install -Dm755 "$pkgname/bin/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm644 "$pkgname/shell/treeman.bash" "$pkgdir/usr/share/bash-completion/completions/$pkgname"
+}
