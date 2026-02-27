@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+
+# --- Colors ---
+
+setup_colors() {
+    if [[ -n "${NO_COLOR:-}" ]] || [[ ! -t 2 ]]; then
+        RED="" GREEN="" YELLOW="" BLUE="" CYAN="" BOLD="" DIM="" RESET=""
+    else
+        RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m'
+        BLUE=$'\033[34m' CYAN=$'\033[36m' BOLD=$'\033[1m'
+        DIM=$'\033[2m' RESET=$'\033[0m'
+    fi
+}
+
+setup_colors
+
+# --- Messaging (all to stderr) ---
+
+die()  { printf '%s\n' "${RED}error:${RESET} $*" >&2; exit 1; }
+info() { printf '%s\n' "${GREEN}::${RESET} $*" >&2; }
+warn() { printf '%s\n' "${YELLOW}warning:${RESET} $*" >&2; }
+
+# --- Utility ---
+
+require_fzf() {
+    command -v fzf &>/dev/null || die "fzf is required but not installed. Install it: https://github.com/junegunn/fzf#installation"
+}
+
+find_project_root() {
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "$dir/.bare" ]]; then
+            printf '%s' "$dir"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+    die "not inside a treeman project (no .bare/ directory found)"
+}
+
+get_default_branch() {
+    local root="$1"
+    local cache="$root/.bare/treeman-default-branch"
+    if [[ -f "$cache" ]]; then
+        cat "$cache"
+    else
+        die "default branch not cached — was this project created with treeman init?"
+    fi
+}
+
+get_worktree_names() {
+    local root="$1"
+    git -C "$root/.bare" worktree list --porcelain | awk -v root="$root" '
+        /^worktree / {
+            path = substr($0, 10)
+            if (path == root "/.bare") next
+            n = split(path, parts, "/")
+            print parts[n]
+        }
+    '
+}
+
+run_post_create_scripts() {
+    local worktree_dir="$1"
+    local root="$2"
+    local config="$root/.treeman"
+    [[ -f "$config" ]] || return 0
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip comments and blank lines
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        info "running: $line"
+        (cd "$worktree_dir" && eval "$line") || warn "script failed: $line"
+    done < "$config"
+}
+
+# --- Commands ---
+
+cmd_init() {
+    local url="${1:-}"
+    local dirname="${2:-}"
+
+    [[ -z "$url" ]] && die "usage: treeman init <url> [dirname]"
+
+    # Derive directory name from URL
+    if [[ -z "$dirname" ]]; then
+        dirname="$(basename "$url" .git)"
+    fi
+
+    [[ -d "$dirname" ]] && die "directory '$dirname' already exists"
+
+    local abs_dir
+    abs_dir="$(pwd)/$dirname"
+
+    # Cleanup on failure
+    trap 'rm -rf "$abs_dir"' ERR
+
+    info "cloning $url into $dirname/"
+    mkdir -p "$abs_dir"
+    git clone --bare "$url" "$abs_dir/.bare"
+
+    # Pointer file
+    printf 'gitdir: ./.bare\n' > "$abs_dir/.git"
+
+    # Configure fetch refspec
+    git -C "$abs_dir/.bare" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+
+    # Detect default branch
+    local default_branch
+    default_branch=$(git -C "$abs_dir/.bare" ls-remote --symref origin HEAD 2>/dev/null \
+        | awk '/^ref:/ { sub(/refs\/heads\//, "", $2); print $2; exit }')
+
+    if [[ -z "$default_branch" ]]; then
+        # Fallback: check if main or master exists
+        if git -C "$abs_dir/.bare" show-ref --verify --quiet refs/remotes/origin/main 2>/dev/null; then
+            default_branch="main"
+        elif git -C "$abs_dir/.bare" show-ref --verify --quiet refs/remotes/origin/master 2>/dev/null; then
+            default_branch="master"
+        else
+            default_branch="main"
+            warn "could not detect default branch, assuming 'main'"
+        fi
+    fi
+
+    # Cache default branch
+    printf '%s' "$default_branch" > "$abs_dir/.bare/treeman-default-branch"
+
+    # Fetch
+    git -C "$abs_dir/.bare" fetch origin
+
+    # Add default branch worktree
+    git -C "$abs_dir/.bare" worktree add "$abs_dir/$default_branch" "$default_branch"
+
+    # Create template .treeman config
+    cat > "$abs_dir/.treeman" <<'TMPL'
+# treeman post-create scripts
+# Each non-comment line is run in the new worktree directory after creation.
+# Examples:
+# pnpm install
+# cp -r ../.wrangler .
+# cp ../.dev.vars .
+TMPL
+
+    trap - ERR
+    info "created treeman project: $dirname/"
+    info "default branch worktree: $dirname/$default_branch/"
+}
+
+cmd_add() {
+    local root
+    root="$(find_project_root)"
+    local default_branch
+    default_branch="$(get_default_branch "$root")"
+    local branch="${1:-}"
+
+    if [[ -z "$branch" ]]; then
+        require_fzf
+        info "fetching remote branches..."
+        git -C "$root/.bare" fetch --prune
+
+        # Get existing worktree branches to exclude
+        local existing
+        existing="$(get_worktree_names "$root")"
+
+        # List remote branches, strip prefix, exclude already checked out
+        local candidates
+        candidates="$(git -C "$root/.bare" branch -r --format='%(refname:short)' \
+            | sed 's|^origin/||' \
+            | grep -v '^HEAD$' \
+            | while IFS= read -r b; do
+                if ! echo "$existing" | grep -qxF "$b"; then
+                    printf '%s\n' "$b"
+                fi
+            done)" || true
+
+        local query result
+        result="$(printf '%s' "$candidates" \
+            | fzf --prompt="branch> " --print-query --header="Select remote branch or type new name" \
+            2>/dev/tty)" || true
+
+        # fzf --print-query: first line is typed query, second line is selected match
+        query="$(sed -n '1p' <<< "$result")"
+        branch="$(sed -n '2p' <<< "$result")"
+
+        # If nothing was selected but something was typed, use the typed query as new branch
+        if [[ -z "$branch" ]]; then
+            branch="$query"
+        fi
+
+        [[ -z "$branch" ]] && die "no branch selected"
+    fi
+
+    local worktree_dir="$root/$branch"
+
+    if [[ -d "$worktree_dir" ]]; then
+        die "worktree '$branch' already exists"
+    fi
+
+    # Check if branch exists remotely
+    if git -C "$root/.bare" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+        info "adding worktree for existing branch: $branch"
+        git -C "$root/.bare" worktree add "$worktree_dir" "$branch"
+    else
+        info "creating new branch '$branch' from origin/$default_branch"
+        git -C "$root/.bare" worktree add -b "$branch" "$worktree_dir" "origin/$default_branch"
+    fi
+
+    run_post_create_scripts "$worktree_dir" "$root"
+    info "worktree ready: $branch/"
+}
+
+cmd_list() {
+    local root
+    root="$(find_project_root)"
+    local names_only=false
+
+    if [[ "${1:-}" == "--names-only" ]]; then
+        names_only=true
+    fi
+
+    local current_wt=""
+    # Determine which worktree we're in
+    if [[ "$PWD" == "$root/"* ]]; then
+        current_wt="${PWD#"$root"/}"
+        current_wt="${current_wt%%/*}"
+    fi
+
+    local porcelain
+    porcelain="$(git -C "$root/.bare" worktree list --porcelain)"
+    # Ensure trailing newline so the last entry gets processed
+    porcelain+=$'\n\n'
+
+    local wt_path="" wt_branch=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^worktree\ (.+) ]]; then
+            wt_path="${BASH_REMATCH[1]}"
+            wt_branch=""
+        elif [[ "$line" =~ ^branch\ refs/heads/(.+) ]]; then
+            wt_branch="${BASH_REMATCH[1]}"
+        elif [[ -z "$line" && -n "$wt_path" ]]; then
+            # End of entry — process it
+            if [[ "$wt_path" == "$root/.bare" ]]; then
+                wt_path=""
+                continue
+            fi
+
+            local n
+            n="$(basename "$wt_path")"
+
+            if $names_only; then
+                printf '%s\n' "$n"
+                wt_path=""
+                continue
+            fi
+
+            local marker=" "
+            if [[ "$n" == "$current_wt" ]]; then
+                marker="*"
+            fi
+
+            # Dirty status
+            local dirty=""
+            if [[ -d "$wt_path" ]]; then
+                if ! git -C "$wt_path" diff --quiet HEAD -- 2>/dev/null || \
+                   [[ -n "$(git -C "$wt_path" ls-files --others --exclude-standard 2>/dev/null | head -1)" ]]; then
+                    dirty="${YELLOW}[dirty]${RESET}"
+                else
+                    dirty="${GREEN}[clean]${RESET}"
+                fi
+            fi
+
+            # Ahead/behind
+            local ab=""
+            if [[ -d "$wt_path" && -n "$wt_branch" ]]; then
+                local upstream
+                upstream="$(git -C "$wt_path" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" || true
+                if [[ -n "$upstream" ]]; then
+                    local ahead behind
+                    ahead="$(git -C "$wt_path" rev-list --count '@{upstream}..HEAD' 2>/dev/null)" || ahead=0
+                    behind="$(git -C "$wt_path" rev-list --count 'HEAD..@{upstream}' 2>/dev/null)" || behind=0
+                    if (( ahead > 0 && behind > 0 )); then
+                        ab="${CYAN}+${ahead}/-${behind}${RESET}"
+                    elif (( ahead > 0 )); then
+                        ab="${CYAN}+${ahead}${RESET}"
+                    elif (( behind > 0 )); then
+                        ab="${CYAN}-${behind}${RESET}"
+                    fi
+                fi
+            fi
+
+            if [[ "$marker" == "*" ]]; then
+                printf "  ${BOLD}${GREEN}%s${RESET} %-20s %s %s %s\n" "$marker" "$n" "${DIM}${wt_branch:-detached}${RESET}" "$dirty" "$ab"
+            else
+                printf "  %s %-20s %s %s %s\n" "$marker" "$n" "${DIM}${wt_branch:-detached}${RESET}" "$dirty" "$ab"
+            fi
+
+            wt_path=""
+        fi
+    done <<< "$porcelain"
+}
+
+cmd_remove() {
+    local root
+    root="$(find_project_root)"
+    local force=false
+    local name=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -f|--force) force=true; shift ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$name" ]]; then
+        require_fzf
+        local names
+        names="$(get_worktree_names "$root")"
+
+        # Exclude current worktree if we're in one
+        local current_wt=""
+        if [[ "$PWD" == "$root/"* ]]; then
+            current_wt="${PWD#"$root"/}"
+            current_wt="${current_wt%%/*}"
+        fi
+
+        if [[ -n "$current_wt" ]]; then
+            names="$(echo "$names" | grep -vxF "$current_wt")" || true
+        fi
+
+        [[ -z "$names" ]] && die "no worktrees to remove"
+
+        name="$(printf '%s' "$names" | fzf --prompt="remove> " --header="Select worktree to remove" 2>/dev/tty)" || true
+        [[ -z "$name" ]] && die "no worktree selected"
+    fi
+
+    local worktree_dir="$root/$name"
+    [[ -d "$worktree_dir" ]] || die "worktree '$name' does not exist"
+
+    # Check if it's actually a worktree
+    get_worktree_names "$root" | grep -qxF "$name" || die "'$name' is not a worktree"
+
+    # Check dirty status
+    if ! $force; then
+        if ! git -C "$worktree_dir" diff --quiet HEAD -- 2>/dev/null || \
+           [[ -n "$(git -C "$worktree_dir" ls-files --others --exclude-standard 2>/dev/null | head -1)" ]]; then
+            die "worktree '$name' has uncommitted changes (use -f to force)"
+        fi
+    fi
+
+    # Warn if user is inside the worktree
+    if [[ "$PWD" == "$worktree_dir"* ]]; then
+        warn "you are inside this worktree — you should cd out after removal"
+    fi
+
+    if $force; then
+        git -C "$root/.bare" worktree remove --force "$worktree_dir"
+    else
+        git -C "$root/.bare" worktree remove "$worktree_dir"
+    fi
+
+    info "removed worktree: $name"
+}
+
+cmd_switch() {
+    local root
+    root="$(find_project_root)"
+    local name="${1:-}"
+
+    if [[ -z "$name" ]]; then
+        require_fzf
+        local names
+        names="$(get_worktree_names "$root")"
+        [[ -z "$names" ]] && die "no worktrees available"
+
+        name="$(printf '%s' "$names" | fzf --prompt="switch> " --header="Select worktree" 2>/dev/tty)" || true
+        [[ -z "$name" ]] && die "no worktree selected"
+    fi
+
+    local worktree_dir="$root/$name"
+    [[ -d "$worktree_dir" ]] || die "worktree '$name' does not exist"
+
+    # Print ONLY the path to stdout — shell wrapper will cd to it
+    printf '%s' "$worktree_dir"
+}
+
+# Hidden commands for completion support
+
+cmd_complete_branches() {
+    local root
+    root="$(find_project_root)" 2>/dev/null || return 0
+    git -C "$root/.bare" branch -r --format='%(refname:short)' 2>/dev/null \
+        | sed 's|^origin/||' \
+        | grep -v '^HEAD$'
+}
+
+# --- Help ---
+
+usage() {
+    cat >&2 <<EOF
+${BOLD}treeman${RESET} v${VERSION} — git worktree manager
+
+${BOLD}Usage:${RESET}
+  treeman <command> [args]
+
+${BOLD}Commands:${RESET}
+  init <url> [name]    Clone bare repo and set up treeman structure
+  add [branch]         Add worktree (fzf if no arg)
+  list                 List worktrees with status
+  remove [name]        Remove worktree (fzf if no arg)
+  switch [name]        Switch to worktree (fzf if no arg)
+
+${BOLD}Aliases:${RESET}
+  clone = init    a = add    ls, l = list    rm = remove    s = switch
+
+${BOLD}Options:${RESET}
+  -h, --help           Show this help
+  -v, --version        Show version
+EOF
+}
+
+# --- Dispatch ---
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    init|clone)         cmd_init "$@" ;;
+    add|a)              cmd_add "$@" ;;
+    list|ls|l)          cmd_list "$@" ;;
+    remove|rm)          cmd_remove "$@" ;;
+    switch|s)           cmd_switch "$@" ;;
+    _complete-branches) cmd_complete_branches ;;
+    -v|--version)       printf 'treeman %s\n' "$VERSION" ;;
+    -h|--help|"")       usage ;;
+    *)                  die "unknown command: $cmd (try treeman --help)" ;;
+esac
