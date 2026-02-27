@@ -21,7 +21,7 @@ my-project/
 ├── .treeman            # Post-create script config
 ├── main/               # Default branch worktree
 ├── feature-x/          # Feature worktree
-└── hotfix/             # Another worktree
+└── phase-4/main/       # Worktree from branch with slash
 ```
 
 ## Requirements
@@ -69,8 +69,12 @@ treeman list
 #   * main                 main [clean]
 #     feature-x            feature-x [clean]
 #     my-new-feature       my-new-feature [clean]
+#     phase-4/main         phase-4/main [clean]
 
-# Switch to a worktree (using the tm shell wrapper)
+# Add a worktree from a branch with a slash
+treeman add phase-4/main
+
+# Switch to a worktree (use the tm shell wrapper)
 tm switch feature-x
 
 # Interactive selection — omit the name to get an fzf picker
@@ -84,11 +88,11 @@ treeman remove my-new-feature
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `treeman init <url> [name]` | `clone` | Clone bare repo, set up treeman structure |
+| `treeman init <url> [name]` | `clone` | Clone bare repo and set up treeman structure |
 | `treeman add [branch]` | `a` | Add worktree (fzf if no arg) |
 | `treeman list` | `ls`, `l` | List worktrees with status |
 | `treeman remove [name]` | `rm` | Remove worktree (fzf if no arg) |
-| `treeman switch [name]` | `s` | Switch to worktree (fzf if no arg) |
+| `tm switch [name]` | `tm s` | Switch to worktree (fzf if no arg) |
 
 ### `init` / `clone`
 
@@ -139,6 +143,7 @@ Example output:
 
 ```
   * main                 main [clean]
+    phase-4/main         phase-4/main [clean]
     feature-x            feature-x [dirty] +2
     hotfix               hotfix [clean] -1
 ```
@@ -160,12 +165,12 @@ Safety checks:
 ### `switch` / `s`
 
 ```
-treeman switch [name]
+tm switch [name]
 ```
 
 **Without a name:** opens an fzf picker.
 
-**Important:** Use the `tm` shell wrapper instead of calling `treeman switch` directly. A subprocess can't change the parent shell's directory, so `treeman switch` only prints the path. The `tm` wrapper captures it and runs `cd`. See [Shell Integration](#shell-integration).
+**Important:** You **must** use the `tm` shell wrapper — not `treeman switch` directly. A subprocess cannot change the parent shell's directory, so `treeman switch` only prints the path. The `tm` wrapper captures it and runs `cd`. See [Shell Integration](#shell-integration).
 
 ## Shell Integration
 
@@ -178,9 +183,12 @@ tm switch main     # actually cd's to the main worktree
 tm s               # interactive picker, then cd's
 tm list            # same as treeman list (passes through)
 tm add feature     # same as treeman add feature (passes through)
+tm                 # shows tm help
 ```
 
 The `tm` function intercepts `switch` and `s` to capture the path and `cd` into it. All other commands are passed directly to `treeman`.
+
+**Note:** Running `tm` with no arguments shows help. Use `tm switch` (or `tm s`) to switch worktrees — running `treeman switch` directly will not change your directory.
 
 ### Tab completion
 
