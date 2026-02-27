@@ -57,8 +57,9 @@ get_worktree_names() {
         /^worktree / {
             path = substr($0, 10)
             if (path == root "/.bare") next
-            n = split(path, parts, "/")
-            print parts[n]
+            # Compute relative path from root (skip root + leading /)
+            rel = substr(path, length(root) + 2)
+            print rel
         }
     '
 }
@@ -225,7 +226,6 @@ cmd_list() {
     # Determine which worktree we're in
     if [[ "$PWD" == "$root/"* ]]; then
         current_wt="${PWD#"$root"/}"
-        current_wt="${current_wt%%/*}"
     fi
 
     local porcelain
@@ -248,7 +248,7 @@ cmd_list() {
             fi
 
             local n
-            n="$(basename "$wt_path")"
+            n="${wt_path#"$root"/}"
 
             if $names_only; then
                 printf '%s\n' "$n"
