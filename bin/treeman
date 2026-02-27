@@ -177,19 +177,10 @@ cmd_add() {
                 fi
             done)" || true
 
-        local query result
-        result="$(printf '%s' "$candidates" \
-            | fzf --prompt="branch> " --print-query --header="Select remote branch or type new name" \
+        branch="$(printf '%s' "$candidates" \
+            | fzf --height=50% --border --layout=reverse --pointer='▸' \
+                --prompt="branch> " --header="Select remote branch or type new name" --margin=10% \
             2>/dev/tty)" || true
-
-        # fzf --print-query: first line is typed query, second line is selected match
-        query="$(sed -n '1p' <<< "$result")"
-        branch="$(sed -n '2p' <<< "$result")"
-
-        # If nothing was selected but something was typed, use the typed query as new branch
-        if [[ -z "$branch" ]]; then
-            branch="$query"
-        fi
 
         [[ -z "$branch" ]] && die "no branch selected"
     fi
@@ -333,7 +324,8 @@ cmd_remove() {
 
         [[ -z "$names" ]] && die "no worktrees to remove"
 
-        name="$(printf '%s' "$names" | fzf --prompt="remove> " --header="Select worktree to remove" 2>/dev/tty)" || true
+        name="$(printf '%s' "$names" | fzf --height=50% --border --layout=reverse --pointer='▸' \
+            --prompt="remove> " --header="Select worktree to remove" --margin=10% 2>/dev/tty)" || true
         [[ -z "$name" ]] && die "no worktree selected"
     fi
 
@@ -381,7 +373,8 @@ cmd_switch() {
         names="$(get_worktree_names "$root")"
         [[ -z "$names" ]] && die "no worktrees available"
 
-        name="$(printf '%s' "$names" | fzf --prompt="switch> " --header="Select worktree" 2>/dev/tty)" || true
+        name="$(printf '%s' "$names" | fzf --height=50% --border --layout=reverse --pointer='▸' \
+            --prompt="switch> " --header="Select worktree" --margin=10% 2>/dev/tty)" || true
         [[ -z "$name" ]] && die "no worktree selected"
     fi
 
