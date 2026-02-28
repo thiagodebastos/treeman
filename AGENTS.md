@@ -5,7 +5,9 @@ Guidelines for agentic coding agents working on treeman, a bash-based git worktr
 ## Project Structure
 
 - `bin/treeman` - CLI entry point (439 lines)
-- `shell/treeman.bash` - Shell wrapper for cd (66 lines)
+- `shell/treeman.sh` - Shared shell wrapper for cd
+- `shell/treeman.bash` - Bash completions
+- `shell/treeman.zsh` - Zsh completions
 - `install.sh` - Installation script
 - `version.txt` - Version file
 

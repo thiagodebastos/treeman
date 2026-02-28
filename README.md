@@ -41,9 +41,9 @@ cd treeman
 This does two things:
 
 1. Symlinks `bin/treeman` to `~/.local/bin/treeman`
-2. Adds `source .../shell/treeman.bash` to your `~/.bashrc`
+2. Adds shell integration to `~/.bashrc` (or `~/.zshrc` if using zsh)
 
-Then restart your shell or run `source ~/.bashrc`.
+Then restart your shell or run `source ~/.bashrc` (or `~/.zshrc`).
 
 Make sure `~/.local/bin` is in your `PATH`.
 
@@ -179,7 +179,7 @@ tm switch [name]
 
 ## Shell Integration
 
-The install script sources `shell/treeman.bash` in your `.bashrc`, which provides:
+The install script sources `shell/treeman.bash` (or `shell/treeman.zsh`) in your shell config, which provides:
 
 ### The `tm` wrapper
 
@@ -197,7 +197,7 @@ The `tm` function intercepts `switch` and `s` to capture the path and `cd` into 
 
 ### Tab completion
 
-Both `tm` and `treeman` have bash completions:
+Both `tm` and `treeman` have shell completions (bash and zsh):
 
 - **Position 1:** subcommands (`init`, `add`, `list`, `remove`, `switch`, and their aliases)
 - **`switch`/`remove`:** completes worktree names
